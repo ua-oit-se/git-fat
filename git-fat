@@ -192,7 +192,6 @@ try:
             files = {}
             page_token = None
             while True:
-                print("'%s' in parents" % self.folder)
                 response = self.service.files().list(q="'%s' in parents" % self.folder,
                                                      fields='nextPageToken, files(id, name)',
                                                      pageToken=page_token,
@@ -213,7 +212,7 @@ try:
                 if os.path.isfile(localfile):
                     self.verbose('Object %s already exists, skipping.' % file)
                 else:
-                    self.verbose('Getting object %s from Drive Folder %s' % (file, self.folder))
+                    print('Getting object %s from Drive Folder %s' % (file, self.folder))
                     localfile = os.path.abspath(os.path.join(self.objdir, file))
                     try:
                         request = self.service.files().get_media(fileId=folder[file], supportsAllDrives=True)
@@ -223,7 +222,7 @@ try:
                             while done is False:
                                 status, done = downloader.next_chunk()
                                 print("Download %d%%." % int(status.progress() * 100))
-
+                            print("Complete!")
                     except KeyboardInterrupt:
                         # If we cancel during download, make sure the partial
                         # download is removed.
@@ -232,13 +231,12 @@ try:
 
         def push(self, files):
             folder = self.get_folder_list()
-            print(files)
             for file in files:
                 if file in folder:
                     self.verbose('Object %s already exists in folder %s, skipping.' % (file, self.folder))
                 else:
                     localfile = os.path.abspath(os.path.join(self.objdir, file))
-                    self.verbose('Uploading object %s to Drive Folder %s' % (file, self.folder))
+                    print('Uploading object %s to Drive Folder %s' % (file, self.folder))
                     try:
                         size = os.path.getsize(localfile)
                         if size > 0:
