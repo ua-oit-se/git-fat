@@ -1,0 +1,47 @@
+#!/bin/sh
+#
+# A git hook that prevents binary files from being added.
+# Loosely based on the pre-commit.sample from cygwin's git.
+#
+# The check relies on git diff --numstat, which prints dashes instead of
+# line counts for binary files.
+
+if git rev-parse --verify HEAD >/dev/null 2>&1
+then
+    against=HEAD
+else
+    # Initial commit: diff against an empty tree object
+    against=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+fi
+
+# Redirect output to stderr.
+exec 1>&2
+
+if test $(git diff --numstat --cached --diff-filter=ACMRUXB $against |
+          awk '/^-\t-\t/ { print $3 }' | wc -c) != 0
+then
+
+    echo -e "Error: the following files appear to be binary:\n"
+
+    git diff --numstat --cached --diff-filter=ACMRUXB $against |
+      awk '/^-\t-\t/ { print "\t"$3 }'
+
+    cat <<\EOF
+
+Did you forget to add them to .gitattributes?
+
+If you REALLY want these files to be added as binary, you can skip this check
+using:
+
+  git commit --no-verify
+
+Note: If you are changing a binary file that was previously stored in the git
+      repository, this check will complain even if it will now be pushed to
+      git fat. If this happens, run `git commit --no-verify`, then check that
+      the file is now handled through git fat using `git show --stat`.
+
+EOF
+    exit 1
+fi
+
+exit 0

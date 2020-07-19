@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# This hook is called with the following parameters:
+#
+# $1 -- Name of the remote to which the push is being done
+# $2 -- URL to which the push is being done
+#
+# This calls git fat push such that the extra fat files repository is kept in sync
+
+echo "Pushing to fat"
+
+git fat push
+
+exit 0

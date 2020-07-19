@@ -1,0 +1,5 @@
+#!/bin/sh
+
+git fat pull
+
+exit 0
