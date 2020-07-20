@@ -162,6 +162,13 @@ def gitconfig_set(name, value, file=None):
     args += [name, value]
     p = subprocess.check_call(args)
 
+
+def progressBar(current, total, barLength=20):
+    percent = float(current) * 100 / total
+    arrow = '-' * int(percent / 100 * barLength - 1) + '>'
+    spaces = ' ' * (barLength - len(arrow))
+    print('Progress: [%s%s] %d %%' % (arrow, spaces, percent), end='\r')
+
 try:
     import httplib2
     import getopt
@@ -185,6 +192,7 @@ try:
             credentials = ServiceAccountCredentials.from_json_keyfile_name(self.secret,
                                                                            'https://www.googleapis.com/auth/drive')
             http = credentials.authorize(httplib2.Http())
+            http.redirect_codes = set(http.redirect_codes) - {308}
             service = discovery.build('drive', 'v3', http=http)
             return service
 
@@ -193,13 +201,13 @@ try:
             page_token = None
             while True:
                 response = self.service.files().list(q="'%s' in parents" % self.folder,
-                                                     fields='nextPageToken, files(id, name)',
+                                                     fields='nextPageToken, files(id, name, size)',
                                                      pageToken=page_token,
                                                      includeItemsFromAllDrives=True,
                                                      supportsAllDrives=True).execute()
 
                 for f in response.get('files', []):
-                    files[f.get('name')] = f.get('id')
+                    files[f.get('name')] = {'id': f.get('id'), 'size': f.get('size')}
                 page_token = response.get('nextPageToken', None)
                 if page_token is None:
                     break
@@ -207,59 +215,90 @@ try:
 
         def pull(self, files):
             folder = self.get_folder_list()
+            files_to_pull = []
             for file in files:
                 localfile = os.path.abspath(os.path.join(self.objdir, file))
                 if os.path.isfile(localfile):
                     self.verbose('Object %s already exists, skipping.' % file)
                 else:
-                    print('Getting object %s from Drive Folder %s' % (file, self.folder))
-                    localfile = os.path.abspath(os.path.join(self.objdir, file))
-                    try:
-                        request = self.service.files().get_media(fileId=folder[file], supportsAllDrives=True)
-                        with open(localfile, "wb+") as fh:
-                            downloader = MediaIoBaseDownload(fh, request)
-                            done = False
-                            while done is False:
-                                status, done = downloader.next_chunk()
-                                print("Download %d%%." % int(status.progress() * 100))
-                            print("Complete!")
-                    except KeyboardInterrupt:
-                        # If we cancel during download, make sure the partial
-                        # download is removed.
-                        os.remove(localfile)
-                        raise
+                    files_to_pull.append(file)
+            count = 1
+            if len(files_to_pull) == 0:
+                print("Everything up to date.")
+            else:
+                print("Need to download %d files" % len(files_to_pull))
+            for file in files_to_pull:
+                try:
+
+                    print('Downloading %s (%s)\t[%d/%d]' % (file, self.sizeof_fmt(int(folder[file]["size"])), count, len(files_to_pull)))
+
+                    request = self.service.files().get_media(fileId=folder[file]["id"], supportsAllDrives=True)
+                    with open(localfile, "wb+") as fh:
+                        downloader = MediaIoBaseDownload(fh, request)
+                        done = False
+                        while done is False:
+                            status, done = downloader.next_chunk()
+                            progressBar(int(status.progress() * 100), 100, 20)
+                        print()
+                except KeyError:
+                    print("ERROR: Could not download %s, was it ever git fat pushed?" % file)
+                    print("Run git fat checkout after this process completes to identify the missing filename.")
+                except KeyboardInterrupt:
+                    # If we cancel during download, make sure the partial
+                    # download is removed.
+                    os.remove(localfile)
+                    raise
+                count +=1
 
         def push(self, files):
             folder = self.get_folder_list()
+            files_to_push = []
             for file in files:
                 if file in folder:
                     self.verbose('Object %s already exists in folder %s, skipping.' % (file, self.folder))
                 else:
-                    localfile = os.path.abspath(os.path.join(self.objdir, file))
-                    print('Uploading object %s to Drive Folder %s' % (file, self.folder))
-                    try:
-                        size = os.path.getsize(localfile)
-                        if size > 0:
-                            media = MediaFileUpload(localfile, resumable=True)
-                            request = self.service.files().create(media_body=media,
-                                                                  body={'name': file, 'parents': [self.folder]},
-                                                                  supportsAllDrives=True)
-                            response = None
-                            while response is None:
-                                status, response = request.next_chunk()
-                                if status:
-                                    self.verbose("Uploaded %d%%." % int(status.progress() * 100))
-                            print("%s Upload Complete!" % file)
-                        else:
-                            request = self.service.files().create(
-                                body={'name': file, 'parents': [folder]},
-                                supportsTeamDrives=True).execute()
-                    except KeyboardInterrupt:
-                        # If we cancel during upload, delete the partially uploaded
-                        # remote object. Otherwise we'll have problems later.
-                        folder = self.get_folder_list()
-                        self.service.files().delete(fileId=folder[file])
-                        raise
+                    files_to_push.append(file)
+            count = 1
+            if len(files_to_push) == 0:
+                print("Everything up to date.")
+            else:
+                print("Need to push %d files" % len(files_to_push))
+            for file in files_to_push:
+                localfile = os.path.abspath(os.path.join(self.objdir, file))
+                
+                print('Uploading object %s (%s)\t[%d/%d]' % (file, self.sizeof_fmt(os.path.getsize(localfile)), count, len(files_to_push)))
+                try:
+                    size = os.path.getsize(localfile)
+                    if size > 0:
+                        media = MediaFileUpload(localfile, resumable=True)
+                        request = self.service.files().create(media_body=media,
+                                                              body={'name': file, 'parents': [self.folder]},
+                                                              supportsAllDrives=True)
+                        response = None
+                        while response is None:
+                            status, response = request.next_chunk()
+                            progressBar(status.progress() * 100, 100, 20)
+                        print()
+                    else:
+                        request = self.service.files().create(
+                            body={'name': file, 'parents': [folder]},
+                            supportsTeamDrives=True).execute()
+
+                except KeyboardInterrupt:
+                    # If we cancel during upload, delete the partially uploaded
+                    # remote object. Otherwise we'll have problems later.
+                    folder = self.get_folder_list()
+                    self.service.files().delete(fileId=folder[file])
+                    raise
+                count +=1
+
+        @staticmethod
+        def sizeof_fmt(num, suffix='B'):
+            for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+                if abs(num) < 1024.0:
+                    return "%3.1f%s%s" % (num, unit, suffix)
+                num /= 1024.0
+            return "%.1f%s%s" % (num, 'Yi', suffix)
 
 except ImportError:
     class GDriveBackend(object):
@@ -280,7 +319,7 @@ class RsyncBackend(object):
         self.objdir = objdir
 
     def get_rsync(self):
-        cfgpath = os.path.join(self.gitroot, '.gitfat')
+        cfgpath = os.path.join(self.gitroot, b'.gitfat')
         remote = gitconfig_get('rsync.remote', file=cfgpath)
         ssh_port = gitconfig_get('rsync.sshport', file=cfgpath)
         ssh_user = gitconfig_get('rsync.sshuser', file=cfgpath)
