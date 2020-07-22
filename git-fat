@@ -277,7 +277,9 @@ try:
                         response = None
                         while response is None:
                             status, response = request.next_chunk()
-                            progressBar(status.progress() * 100, 100, 20)
+                            if status:
+                                progressBar(status.progress() * 100, 100, 20)
+                        progressBar(100, 100, 20)
                         print()
                     else:
                         request = self.service.files().create(
