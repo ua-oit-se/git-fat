@@ -277,7 +277,7 @@ try:
                         response = None
                         while response is None:
                             status, response = request.next_chunk()
-                            if status:
+                            if status is not None:
                                 progressBar(status.progress() * 100, 100, 20)
                         progressBar(100, 100, 20)
                         print()
