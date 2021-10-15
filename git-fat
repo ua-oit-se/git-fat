@@ -231,7 +231,7 @@ try:
                 try:
 
                     print('Downloading %s (%s)\t[%d/%d]' % (file, self.sizeof_fmt(int(folder[file]["size"])), count, len(files_to_pull)))
-
+                    localfile = os.path.abspath(os.path.join(self.objdir, file))
                     request = self.service.files().get_media(fileId=folder[file]["id"], supportsAllDrives=True)
                     with open(localfile, "wb+") as fh:
                         downloader = MediaIoBaseDownload(fh, request)
